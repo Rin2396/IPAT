@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "ipat-backend"
+version = "0.1.0"
+description = "Digital platform for managing industrial practice in college"
+authors = []
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+sqlalchemy = "^2.0.36"
+psycopg2-binary = "^2.9.10"
+alembic = "^1.14.0"
+pydantic = { extras = ["email"], version = "^2.10.0" }
+pydantic-settings = "^2.6.0"
+python-jose = { extras = ["cryptography"], version = "^3.3.0" }
+bcrypt = "^4.2.0"
+redis = "^5.2.0"
+celery = { extras = ["redis"], version = "^5.4.0" }
+minio = "^7.2.9"
+python-multipart = "^0.0.17"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.8.0"
+pytest = "^8.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
