@@ -23,6 +23,10 @@ export function Reports() {
   const assignmentIdNum = assignmentId ? parseInt(assignmentId, 10) : 0;
   const canReview = user?.role === 'admin' || user?.role === 'college_supervisor' || user?.role === 'company_supervisor';
 
+  const canTransition = (report: Report, status: string) => (report.allowed_transitions ?? []).includes(status as any);
+
+  const statusOption = (value: string) => ({ value, label: STATUS_LABELS[value] ?? value });
+
   const load = () => {
     if (!assignmentIdNum) return;
     setLoading(true);
@@ -125,22 +129,21 @@ export function Reports() {
           {
             title: 'Статус',
             dataIndex: 'status',
-            render: (status: string, record: Report) =>
-              canReview && (status === 'submitted' || status === 'under_review') ? (
+            render: (status: string, record: Report) => {
+              const allowed = record.allowed_transitions ?? [];
+              if (!canReview || !allowed.length) {
+                return STATUS_LABELS[status] ?? status;
+              }
+              const options = [status, ...allowed].filter((v, i, arr) => arr.indexOf(v) === i).map(statusOption);
+              return (
                 <Select
                   value={status}
-                  options={[
-                    { value: 'submitted', label: STATUS_LABELS.submitted },
-                    { value: 'under_review', label: STATUS_LABELS.under_review },
-                    { value: 'approved', label: STATUS_LABELS.approved },
-                    { value: 'revision_requested', label: STATUS_LABELS.revision_requested },
-                  ]}
+                  options={options}
                   onChange={(v) => handleStatusChange(record, v)}
-                  style={{ width: 180 }}
+                  style={{ width: 200 }}
                 />
-              ) : (
-                STATUS_LABELS[status] ?? status
-              ),
+              );
+            },
           },
           { title: 'Дата загрузки', dataIndex: 'uploaded_at', render: (v: string) => new Date(v).toLocaleString() },
           {
@@ -148,14 +151,14 @@ export function Reports() {
             key: 'actions',
             render: (_, record: Report) => (
               <Space>
-                <Button size="small" onClick={() => handleStatusChange(record, 'submitted')} disabled={record.status !== 'draft' || (user?.role !== 'student' && user?.role !== 'admin')}>
+                <Button size="small" onClick={() => handleStatusChange(record, 'submitted')} disabled={!canTransition(record, 'submitted')}>
                   На согласование
                 </Button>
                 <Button
                   size="small"
                   danger
                   onClick={() => handleDelete(record)}
-                  disabled={record.status !== 'draft' || (user?.role !== 'student' && user?.role !== 'admin')}
+                  disabled={record.status !== 'draft' || !(user?.role === 'student' || user?.role === 'admin')}
                 >
                   Удалить
                 </Button>

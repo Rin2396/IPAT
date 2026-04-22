@@ -31,6 +31,16 @@ def _can_accept_task(user) -> bool:
     return user.role in (UserRole.admin, UserRole.college_supervisor, UserRole.company_supervisor)
 
 
+def _allowed_transitions_for_task(task: Task, assignment: Assignment, user) -> list[TaskStatus]:
+    # Start from status graph, then apply role-specific constraints.
+    transitions = list(ALLOWED_TRANSITIONS.get(task.status, ()))
+    if TaskStatus.accepted in transitions:
+        # Only supervisors/admin can accept, and only from done (graph already models this).
+        if not _can_accept_task(user) or task.status != TaskStatus.done:
+            transitions = [t for t in transitions if t != TaskStatus.accepted]
+    return transitions
+
+
 @router.get("", response_model=list[TaskRead])
 def list_tasks(
     db: DbSession,
@@ -43,6 +53,9 @@ def list_tasks(
     if not _can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     tasks = db.query(Task).filter(Task.assignment_id == assignment_id).order_by(Task.order, Task.id).all()
+    # Inject allowed transitions for current user.
+    for t in tasks:
+        setattr(t, "allowed_transitions", _allowed_transitions_for_task(t, assignment, current_user))
     return tasks
 
 
@@ -54,6 +67,7 @@ def get_task(task_id: int, db: DbSession, current_user: CurrentUser):
     assignment = db.query(Assignment).filter(Assignment.id == task.assignment_id).first()
     if not assignment or not _can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    setattr(task, "allowed_transitions", _allowed_transitions_for_task(task, assignment, current_user))
     return task
 
 
@@ -82,6 +96,7 @@ def create_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+    setattr(task, "allowed_transitions", _allowed_transitions_for_task(task, assignment, current_user))
     return task
 
 
@@ -121,6 +136,7 @@ def update_task(task_id: int, data: TaskUpdate, db: DbSession, current_user: Cur
             )
     db.commit()
     db.refresh(task)
+    setattr(task, "allowed_transitions", _allowed_transitions_for_task(task, assignment, current_user))
     return task
 
 

@@ -2,9 +2,11 @@ import io
 import uuid
 from pathlib import Path
 from datetime import timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, status, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser
@@ -16,6 +18,24 @@ from app.services.minio_client import get_minio_client, ensure_bucket
 from app.tasks.notifications import notify_user
 
 router = APIRouter()
+
+def _ascii_filename_fallback(name: str) -> str:
+    # Header values must be latin-1 encodable; use ASCII fallback.
+    safe = (name or "").replace("\\", "_").replace('"', "_")
+    ascii_only = safe.encode("ascii", "ignore").decode("ascii").strip()
+    return ascii_only or "report"
+
+
+def _content_disposition_attachment(filename: str) -> str:
+    """
+    RFC 6266 / RFC 5987:
+    - filename= (ASCII fallback)
+    - filename*=UTF-8''... (supports unicode via percent-encoding)
+    Value must be latin-1 encodable for Starlette headers, so we keep it ASCII.
+    """
+    ascii_name = _ascii_filename_fallback(filename)
+    utf8_quoted = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_quoted}"
 
 REPORT_STATUS_TRANSITIONS = {
     ReportStatus.draft: (ReportStatus.submitted,),
@@ -40,6 +60,24 @@ def _can_review_report(user) -> bool:
     return user.role in (UserRole.admin, UserRole.college_supervisor, UserRole.company_supervisor)
 
 
+def _allowed_transitions_for_report(report: Report, assignment: Assignment, user) -> list[ReportStatus]:
+    transitions = list(REPORT_STATUS_TRANSITIONS.get(report.status, ()))
+
+    # Student/admin actions around submission/resubmission.
+    if user.role == UserRole.student:
+        if assignment.student_id != user.id:
+            return []
+        allowed_for_student = {ReportStatus.submitted, ReportStatus.draft}
+        transitions = [t for t in transitions if t in allowed_for_student]
+
+    # Supervisor/admin actions around review.
+    if report.status in (ReportStatus.submitted, ReportStatus.under_review):
+        if not _can_review_report(user):
+            transitions = [t for t in transitions if t not in (ReportStatus.under_review, ReportStatus.approved, ReportStatus.revision_requested)]
+
+    return transitions
+
+
 @router.get("", response_model=list[ReportRead])
 def list_reports(
     db: DbSession,
@@ -52,6 +90,8 @@ def list_reports(
     if not _can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     reports = db.query(Report).filter(Report.assignment_id == assignment_id).order_by(Report.iteration).all()
+    for r in reports:
+        setattr(r, "allowed_transitions", _allowed_transitions_for_report(r, assignment, current_user))
     return reports
 
 
@@ -63,6 +103,7 @@ def get_report(report_id: int, db: DbSession, current_user: CurrentUser):
     assignment = db.query(Assignment).filter(Assignment.id == report.assignment_id).first()
     if not assignment or not _can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    setattr(report, "allowed_transitions", _allowed_transitions_for_report(report, assignment, current_user))
     return report
 
 
@@ -76,9 +117,18 @@ def download_report_file(report_id: int, db: DbSession, current_user: CurrentUse
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     client = get_minio_client()
     ensure_bucket(client, settings.MINIO_BUCKET)
-    obj = client.get_object(settings.MINIO_BUCKET, report.file_key)
+    try:
+        obj = client.get_object(settings.MINIO_BUCKET, report.file_key)
+    except S3Error as e:
+        # Most common case: DB record exists, but object was deleted / never uploaded.
+        if e.code in ("NoSuchKey", "NoSuchObject", "ObjectNotFound"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report file not found in storage")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Storage error while fetching report file")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Storage error while fetching report file")
     filename = Path(report.file_key).name or f"report-{report.id}"
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    cd = _content_disposition_attachment(filename)
+    headers = {"Content-Disposition": cd}
     return StreamingResponse(obj.stream(32 * 1024), media_type="application/octet-stream", headers=headers)
 
 
@@ -143,6 +193,7 @@ def upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+    setattr(report, "allowed_transitions", _allowed_transitions_for_report(report, assignment, current_user))
     return report
 
 
@@ -174,4 +225,5 @@ def update_report_status(report_id: int, data: ReportUpdate, db: DbSession, curr
             )
     db.commit()
     db.refresh(report)
+    setattr(report, "allowed_transitions", _allowed_transitions_for_report(report, assignment, current_user))
     return report

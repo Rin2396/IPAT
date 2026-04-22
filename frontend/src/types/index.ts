@@ -51,6 +51,7 @@ export interface Task {
   title: string;
   description: string | null;
   status: TaskStatus;
+  allowed_transitions?: TaskStatus[];
   order: number;
   created_at: string;
 }
@@ -63,6 +64,7 @@ export interface Report {
   iteration: number;
   file_key: string;
   status: ReportStatus;
+  allowed_transitions?: ReportStatus[];
   uploaded_at: string;
 }
 

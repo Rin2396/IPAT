@@ -30,6 +30,7 @@ class TaskRead(BaseModel):
     title: str
     description: str | None
     status: TaskStatus
+    allowed_transitions: list[TaskStatus] = []
     order: int
     created_at: datetime
 
