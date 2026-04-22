@@ -30,3 +30,8 @@ export async function blockCompany(id: number): Promise<Company> {
   const { data } = await api.post<Company>(`/companies/${id}/block`);
   return data;
 }
+
+export async function unblockCompany(id: number): Promise<Company> {
+  const { data } = await api.post<Company>(`/companies/${id}/unblock`);
+  return data;
+}

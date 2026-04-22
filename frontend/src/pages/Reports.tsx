@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Table, Button, Card, Space, Upload, Select, message } from 'antd';
 import { ArrowLeftOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
-import { listReports, uploadReport, updateReportStatus, getReportDownloadUrl } from '../api/reports';
+import { listReports, uploadReport, updateReportStatus, downloadReport, deleteReport } from '../api/reports';
 import type { Report } from '../types';
 import { useAuthStore } from '../stores/authStore';
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Черновик',
-  submitted: 'На проверке',
-  under_review: 'На согласовании',
+  submitted: 'Ожидает проверки',
+  under_review: 'На рассмотрении',
   approved: 'Утверждён',
   revision_requested: 'На доработку',
 };
@@ -59,8 +59,31 @@ export function Reports() {
   };
 
   const handleDownload = async (report: Report) => {
-    const { url } = await getReportDownloadUrl(report.id);
-    window.open(url, '_blank');
+    try {
+      const { blob, filename } = await downloadReport(report.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `report-${report.id}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail ?? 'Ошибка скачивания');
+    }
+  };
+
+  const handleDelete = async (report: Report) => {
+    try {
+      await deleteReport(report.id);
+      message.success('Отчёт удалён');
+      load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail ?? 'Ошибка удаления');
+    }
   };
 
   if (!assignmentIdNum) {
@@ -82,7 +105,7 @@ export function Reports() {
             Назад
           </Button>
           {(user?.role === 'student' || user?.role === 'admin') && (
-            <Upload beforeUpload={handleUpload} showUploadList={false} accept=".pdf,.doc,.docx">
+            <Upload beforeUpload={handleUpload} showUploadList accept=".pdf,.doc,.docx" maxCount={1}>
               <Button type="primary" icon={<UploadOutlined />}>
                 Загрузить отчёт
               </Button>
@@ -107,6 +130,7 @@ export function Reports() {
                 <Select
                   value={status}
                   options={[
+                    { value: 'submitted', label: STATUS_LABELS.submitted },
                     { value: 'under_review', label: STATUS_LABELS.under_review },
                     { value: 'approved', label: STATUS_LABELS.approved },
                     { value: 'revision_requested', label: STATUS_LABELS.revision_requested },
@@ -126,6 +150,14 @@ export function Reports() {
               <Space>
                 <Button size="small" onClick={() => handleStatusChange(record, 'submitted')} disabled={record.status !== 'draft' || (user?.role !== 'student' && user?.role !== 'admin')}>
                   На согласование
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() => handleDelete(record)}
+                  disabled={record.status !== 'draft' || (user?.role !== 'student' && user?.role !== 'admin')}
+                >
+                  Удалить
                 </Button>
                 <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)}>
                   Скачать

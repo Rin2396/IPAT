@@ -2,6 +2,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.models.assignment import AssignmentStatus
+from app.schemas.user import UserPublicRead
 
 
 class AssignmentBase(BaseModel):
@@ -36,5 +37,6 @@ class AssignmentRead(BaseModel):
     company_supervisor_id: int | None
     status: AssignmentStatus
     created_at: datetime
+    student: UserPublicRead | None = None
 
     model_config = {"from_attributes": True}

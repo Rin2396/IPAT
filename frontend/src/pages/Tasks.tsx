@@ -13,7 +13,8 @@ const STATUS_LABELS: Record<string, string> = {
   accepted: 'Принято',
 };
 
-const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
+const STATUS_OPTIONS_ALL = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
+const STATUS_OPTIONS_STUDENT = STATUS_OPTIONS_ALL.filter((o) => o.value !== 'accepted');
 
 export function Tasks() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
@@ -25,6 +26,8 @@ export function Tasks() {
   const [form] = Form.useForm();
   const assignmentIdNum = assignmentId ? parseInt(assignmentId, 10) : 0;
   const canAccept = user?.role === 'admin' || user?.role === 'college_supervisor' || user?.role === 'company_supervisor';
+  const isStudent = user?.role === 'student';
+  const statusOptions = isStudent ? STATUS_OPTIONS_STUDENT : STATUS_OPTIONS_ALL;
 
   const load = () => {
     if (!assignmentIdNum) return;
@@ -115,18 +118,18 @@ export function Tasks() {
           {
             title: 'Статус',
             dataIndex: 'status',
-            render: (status: string, record: Task) => (
-              <Select
-                value={status}
-                options={STATUS_OPTIONS}
-                onChange={(v) => handleStatusChange(record, v)}
-                style={{ width: 160 }}
-                disabled={
-                  (status === 'accepted' && !canAccept) ||
-                  (record.status === 'accepted')
-                }
-              />
-            ),
+            render: (status: string, record: Task) =>
+              isStudent && status === 'accepted' ? (
+                STATUS_LABELS.accepted
+              ) : (
+                <Select
+                  value={status}
+                  options={statusOptions}
+                  onChange={(v) => handleStatusChange(record, v)}
+                  style={{ width: 160 }}
+                  disabled={record.status === 'accepted' || (status === 'accepted' && !canAccept)}
+                />
+              ),
           },
           {
             title: 'Действия',
