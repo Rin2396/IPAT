@@ -3,7 +3,6 @@ import { useAuthStore } from '../stores/authStore';
 
 const api = axios.create({
   baseURL: '/api',
-  headers: { 'Content-Type': 'application/json' },
 });
 
 let refreshPromise: Promise<string> | null = null;
@@ -12,6 +11,17 @@ api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Don't force JSON content-type for multipart uploads (FormData).
+  if (config.data instanceof FormData) {
+    if (config.headers) {
+      delete (config.headers as Record<string, unknown>)['Content-Type'];
+    }
+  } else if (config.data !== undefined) {
+    // Let axios send JSON by default for object payloads.
+    if (config.headers && !(config.headers as Record<string, unknown>)['Content-Type']) {
+      (config.headers as Record<string, unknown>)['Content-Type'] = 'application/json';
+    }
   }
   return config;
 });

@@ -8,6 +8,12 @@ export interface User {
   is_active: boolean;
 }
 
+export interface UserPublic {
+  id: number;
+  full_name: string;
+  role: UserRole;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
@@ -34,6 +40,7 @@ export interface Assignment {
   company_supervisor_id: number | null;
   status: AssignmentStatus;
   created_at: string;
+  student?: UserPublic | null;
 }
 
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'accepted';

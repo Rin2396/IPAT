@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Card, Space, Modal, Form, Input, message } from 'antd';
 import { PlusOutlined, CheckOutlined, StopOutlined } from '@ant-design/icons';
-import { listCompanies, createCompany, updateCompany, verifyCompany, blockCompany } from '../api/companies';
+import { listCompanies, createCompany, updateCompany, verifyCompany, blockCompany, unblockCompany } from '../api/companies';
 import type { Company } from '../types';
 
 export function Companies() {
@@ -83,6 +83,17 @@ export function Companies() {
     });
   };
 
+  const handleUnblock = (id: number) => {
+    Modal.confirm({
+      title: 'Разблокировать компанию?',
+      onOk: () =>
+        unblockCompany(id).then(() => {
+          message.success('Компания разблокирована');
+          load();
+        }),
+    });
+  };
+
   return (
     <Card
       title="Компании"
@@ -125,6 +136,11 @@ export function Companies() {
                 {!record.blocked && (
                   <Button size="small" danger icon={<StopOutlined />} onClick={() => handleBlock(record.id)}>
                     Заблокировать
+                  </Button>
+                )}
+                {record.blocked && (
+                  <Button size="small" type="primary" onClick={() => handleUnblock(record.id)}>
+                    Разблокировать
                   </Button>
                 )}
               </Space>

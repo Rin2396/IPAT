@@ -110,7 +110,8 @@ export function Assignments() {
           {
             title: 'Студент',
             dataIndex: 'student_id',
-            render: (id: number) => users.find((u) => u.id === id)?.full_name ?? id,
+            render: (id: number, record: Assignment) =>
+              record.student?.full_name ?? users.find((u) => u.id === id)?.full_name ?? id,
           },
           {
             title: 'Компания',

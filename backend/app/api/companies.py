@@ -91,6 +91,17 @@ def block_company(company_id: int, db: DbSession, current_user: AdminUser):
     return company
 
 
+@router.post("/{company_id}/unblock", response_model=CompanyRead)
+def unblock_company(company_id: int, db: DbSession, current_user: AdminUser):
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    company.blocked = False
+    db.commit()
+    db.refresh(company)
+    return company
+
+
 @router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_company(company_id: int, db: DbSession, current_user: AdminUser):
     company = db.query(Company).filter(Company.id == company_id).first()
