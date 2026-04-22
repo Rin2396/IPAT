@@ -24,6 +24,7 @@ class ReportRead(BaseModel):
     iteration: int
     file_key: str
     status: ReportStatus
+    allowed_transitions: list[ReportStatus] = []
     uploaded_at: datetime
 
     model_config = {"from_attributes": True}
