@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.assignment import AssignmentStatus
 from app.schemas.user import UserPublicRead
@@ -28,6 +28,10 @@ class AssignmentUpdate(BaseModel):
     status: AssignmentStatus | None = None
 
 
+class AssignmentGradeUpdate(BaseModel):
+    college_grade: int = Field(ge=1, le=10)
+
+
 class AssignmentRead(BaseModel):
     id: int
     student_id: int
@@ -36,6 +40,7 @@ class AssignmentRead(BaseModel):
     college_supervisor_id: int | None
     company_supervisor_id: int | None
     status: AssignmentStatus
+    college_grade: int | None = None
     created_at: datetime
     student: UserPublicRead | None = None
 

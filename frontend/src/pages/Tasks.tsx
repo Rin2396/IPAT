@@ -108,7 +108,6 @@ export function Tasks() {
         dataSource={tasks}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           { title: 'Название', dataIndex: 'title' },
           { title: 'Описание', dataIndex: 'description', ellipsis: true },
           {

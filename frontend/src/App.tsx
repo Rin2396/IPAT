@@ -10,6 +10,7 @@ import { Assignments } from './pages/Assignments';
 import { Tasks } from './pages/Tasks';
 import { Reports } from './pages/Reports';
 import { Diary } from './pages/Diary';
+import { Chat } from './pages/Chat';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
         <Route path="assignments/:assignmentId/tasks" element={<Tasks />} />
         <Route path="assignments/:assignmentId/diary" element={<Diary />} />
         <Route path="assignments/:assignmentId/reports" element={<Reports />} />
+        <Route path="assignments/:assignmentId/chat" element={<Chat />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

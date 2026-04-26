@@ -5,6 +5,7 @@ from app.models.assignment import Assignment
 from app.models.task import Task
 from app.models.report import Report
 from app.models.notification import Notification
+from app.models.chat import ChatThread, ChatMessage, ChatThreadRead
 
 __all__ = [
     "User",
@@ -14,4 +15,7 @@ __all__ = [
     "Task",
     "Report",
     "Notification",
+    "ChatThread",
+    "ChatMessage",
+    "ChatThreadRead",
 ]

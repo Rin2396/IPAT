@@ -108,7 +108,6 @@ export function Users() {
         dataSource={data}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           { title: 'Email', dataIndex: 'email' },
           { title: 'ФИО', dataIndex: 'full_name' },
           {

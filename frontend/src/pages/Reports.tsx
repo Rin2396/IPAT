@@ -123,7 +123,6 @@ export function Reports() {
         dataSource={reports}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           { title: 'Итерация', dataIndex: 'iteration', width: 100 },
           { title: 'Файл', dataIndex: 'file_key', ellipsis: true },
           {

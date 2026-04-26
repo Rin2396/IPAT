@@ -108,7 +108,6 @@ export function Companies() {
         dataSource={data}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           { title: 'Название', dataIndex: 'name' },
           { title: 'ИНН', dataIndex: 'inn' },
           {

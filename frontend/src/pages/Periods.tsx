@@ -87,7 +87,6 @@ export function Periods() {
         dataSource={data}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           { title: 'Название', dataIndex: 'name' },
           { title: 'Начало', dataIndex: 'start_date' },
           { title: 'Конец', dataIndex: 'end_date' },

@@ -37,3 +37,8 @@ export async function updateAssignment(
   const { data } = await api.patch<Assignment>(`/assignments/${id}`, payload);
   return data;
 }
+
+export async function updateAssignmentGrade(id: number, college_grade: number): Promise<Assignment> {
+  const { data } = await api.patch<Assignment>(`/assignments/${id}/grade`, { college_grade });
+  return data;
+}

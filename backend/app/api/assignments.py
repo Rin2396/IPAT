@@ -6,7 +6,12 @@ from app.core.deps import AdminUser, DbSession, CurrentUser
 from app.models.assignment import Assignment, AssignmentStatus
 from app.tasks.notifications import notify_user
 from app.models.user import UserRole
-from app.schemas.assignment import AssignmentCreate, AssignmentRead, AssignmentUpdate
+from app.schemas.assignment import (
+    AssignmentCreate,
+    AssignmentGradeUpdate,
+    AssignmentRead,
+    AssignmentUpdate,
+)
 
 router = APIRouter()
 
@@ -34,10 +39,6 @@ def _can_access_assignment(assignment: Assignment, user) -> bool:
     if assignment.college_supervisor_id == user.id or assignment.company_supervisor_id == user.id:
         return True
     return False
-
-
-def _can_change_status(user) -> bool:
-    return user.role in (UserRole.admin, UserRole.college_supervisor, UserRole.company_supervisor)
 
 
 @router.get("", response_model=list[AssignmentRead])
@@ -96,22 +97,16 @@ def update_assignment(
     assignment_id: int,
     data: AssignmentUpdate,
     db: DbSession,
-    current_user: CurrentUser,
+    current_user: AdminUser,
 ):
     assignment = db.query(Assignment).with_for_update().filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    if current_user.role != UserRole.admin and assignment.status != AssignmentStatus.draft:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only edit draft assignments")
     if data.college_supervisor_id is not None:
         assignment.college_supervisor_id = data.college_supervisor_id
     if data.company_supervisor_id is not None:
         assignment.company_supervisor_id = data.company_supervisor_id
     if data.status is not None:
-        if not _can_change_status(current_user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot change status")
         old_status = assignment.status
         assignment.status = data.status
         if old_status != data.status:
@@ -122,6 +117,41 @@ def update_assignment(
             )
     db.commit()
     db.refresh(assignment)
+    return assignment
+
+
+@router.patch("/{assignment_id}/grade", response_model=AssignmentRead)
+def update_assignment_grade(
+    assignment_id: int,
+    data: AssignmentGradeUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    if current_user.role != UserRole.college_supervisor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only college supervisor can set grade")
+    assignment = (
+        db.query(Assignment)
+        .options(joinedload(Assignment.student))
+        .filter(Assignment.id == assignment_id)
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+    if assignment.college_supervisor_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if assignment.status != AssignmentStatus.completed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Grade can only be set after the assignment is completed",
+        )
+    assignment.college_grade = data.college_grade
+    db.commit()
+    db.refresh(assignment)
+    notify_user.delay(
+        assignment.student_id,
+        "Выставлена оценка за практику",
+        f"По назначению #{assignment.id} руководитель выставил оценку {data.college_grade} из 10.",
+    )
     return assignment
 
 

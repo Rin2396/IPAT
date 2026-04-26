@@ -23,6 +23,7 @@ class Assignment(Base):
     college_supervisor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     company_supervisor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status = Column(Enum(AssignmentStatus), default=AssignmentStatus.draft, nullable=False)
+    college_grade = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     student = relationship("User", back_populates="assignments_as_student", foreign_keys=[student_id])

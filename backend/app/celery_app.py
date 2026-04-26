@@ -20,4 +20,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.notifications.send_periodic_reminder",
         "schedule": 3600.0,
     },
+    "deactivate-expired-periods": {
+        "task": "app.tasks.notifications.deactivate_expired_periods_task",
+        "schedule": 3600.0,
+    },
 }

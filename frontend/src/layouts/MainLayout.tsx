@@ -80,6 +80,8 @@ export function MainLayout({ children }: { children?: React.ReactNode }) {
         ),
         onClick: () => {
           if (!n.read) markNotificationRead(n.id).then(loadNotifications);
+          const link = (n.body ?? '').split(/\s+/).find((t) => t.startsWith('/assignments/'));
+          if (link) navigate(link);
         },
       })),
       notifications.length > 0

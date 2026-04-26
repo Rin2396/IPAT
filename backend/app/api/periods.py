@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from app.core.deps import AdminUser, DbSession, CurrentUser
 from app.models.period import Period
 from app.schemas.period import PeriodCreate, PeriodRead, PeriodUpdate
+from app.services.period_lifecycle import deactivate_expired_periods
 
 router = APIRouter()
 
@@ -15,6 +16,7 @@ def list_periods(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
 ):
+    deactivate_expired_periods(db)
     q = db.query(Period)
     if is_active is not None:
         q = q.filter(Period.is_active == is_active)

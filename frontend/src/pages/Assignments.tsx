@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Card, Space, Modal, Form, Select, message } from 'antd';
+import { Table, Button, Card, Space, Modal, Form, Select, Badge, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { listAssignments, createAssignment, updateAssignment } from '../api/assignments';
+import { listAssignments, createAssignment, updateAssignment, updateAssignmentGrade } from '../api/assignments';
 import { listPeriods as fetchPeriods } from '../api/periods';
 import { listUsers as fetchUsers } from '../api/users';
 import { listCompanies as fetchCompanies } from '../api/companies';
+import { getChatUnreadCounts } from '../api/chat';
+import { useAuthStore } from '../stores/authStore';
 import type { Assignment, Period, User, Company } from '../types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -15,8 +17,85 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Отменена',
 };
 
+const GRADE_OPTIONS = Array.from({ length: 10 }, (_, i) => ({
+  value: i + 1,
+  label: String(i + 1),
+}));
+
+function formatPeriodLabel(periods: Period[], periodId: number): string {
+  const p = periods.find((x) => x.id === periodId);
+  if (!p) return String(periodId);
+  return `${p.name} (${p.start_date} — ${p.end_date})`;
+}
+
+function AssignmentGradeCell({
+  record,
+  supervisorUserId,
+  onSaved,
+}: {
+  record: Assignment;
+  supervisorUserId: number;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState<number | undefined>(record.college_grade ?? undefined);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(record.college_grade ?? undefined);
+  }, [record.college_grade, record.id]);
+
+  const canEdit =
+    record.status === 'completed' && record.college_supervisor_id === supervisorUserId;
+
+  if (canEdit) {
+    return (
+      <Space wrap size="small">
+        <Select
+          allowClear
+          placeholder="1–10"
+          style={{ width: 88 }}
+          value={value}
+          onChange={(v) => setValue(v ?? undefined)}
+          options={GRADE_OPTIONS}
+        />
+        <Button
+          size="small"
+          type="primary"
+          loading={saving}
+          disabled={value == null}
+          onClick={async () => {
+            if (value == null) return;
+            setSaving(true);
+            try {
+              await updateAssignmentGrade(record.id, value);
+              message.success('Оценка сохранена');
+              onSaved();
+            } catch (e: unknown) {
+              const err = e as { response?: { data?: { detail?: string } } };
+              message.error(err.response?.data?.detail ?? 'Ошибка');
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          Сохранить
+        </Button>
+      </Space>
+    );
+  }
+
+  if (record.college_grade != null) {
+    return <span>{record.college_grade}</span>;
+  }
+  return <span>—</span>;
+}
+
 export function Assignments() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === 'admin';
+  const isCollegeSupervisor = user?.role === 'college_supervisor';
+
   const [data, setData] = useState<Assignment[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -25,6 +104,7 @@ export function Assignments() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [form] = Form.useForm();
+  const [chatUnread, setChatUnread] = useState<Record<number, number>>({});
 
   const load = () => {
     setLoading(true);
@@ -36,6 +116,18 @@ export function Assignments() {
     fetchPeriods().then(setPeriods);
     fetchUsers().then(setUsers);
     fetchCompanies().then(setCompanies);
+    const loadUnread = () => {
+      getChatUnreadCounts()
+        .then((rows) => {
+          const map: Record<number, number> = {};
+          for (const r of rows) map[r.assignment_id] = r.unread;
+          setChatUnread(map);
+        })
+        .catch(() => {});
+    };
+    loadUnread();
+    const t = setInterval(loadUnread, 60000);
+    return () => clearInterval(t);
   }, []);
 
   const handleCreate = () => {
@@ -89,16 +181,21 @@ export function Assignments() {
   const supervisorOptions = users
     .filter((u) => u.role === 'college_supervisor' || u.role === 'company_supervisor')
     .map((u) => ({ value: u.id, label: `${u.full_name} (${u.role})` }));
-  const periodOptions = periods.map((p) => ({ value: p.id, label: p.name }));
+  const periodOptions = periods.map((p) => ({
+    value: p.id,
+    label: `${p.name} (${p.start_date} — ${p.end_date})`,
+  }));
   const companyOptions = companies.filter((c) => !c.blocked).map((c) => ({ value: c.id, label: c.name }));
 
   return (
     <Card
       title="Назначения"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          Добавить
-        </Button>
+        isAdmin ? (
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            Добавить
+          </Button>
+        ) : null
       }
     >
       <Table
@@ -106,7 +203,6 @@ export function Assignments() {
         dataSource={data}
         rowKey="id"
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 80 },
           {
             title: 'Студент',
             dataIndex: 'student_id',
@@ -121,19 +217,47 @@ export function Assignments() {
           {
             title: 'Период',
             dataIndex: 'period_id',
-            render: (id: number) => periods.find((p) => p.id === id)?.name ?? id,
+            render: (id: number) => formatPeriodLabel(periods, id),
           },
           {
             title: 'Статус',
             dataIndex: 'status',
             render: (s: string) => STATUS_LABELS[s] ?? s,
           },
+          ...(isCollegeSupervisor && user
+            ? [
+                {
+                  title: 'Оценка',
+                  key: 'grade',
+                  width: 220,
+                  render: (_: unknown, record: Assignment) => (
+                    <AssignmentGradeCell
+                      record={record}
+                      supervisorUserId={user.id}
+                      onSaved={load}
+                    />
+                  ),
+                },
+              ]
+            : [
+                {
+                  title: 'Оценка',
+                  dataIndex: 'college_grade',
+                  width: 100,
+                  render: (g: number | null | undefined) =>
+                    g != null ? <span>{g}</span> : <span>—</span>,
+                },
+              ]),
           {
             title: 'Действия',
             key: 'actions',
-            render: (_, record: Assignment) => (
+            render: (_: unknown, record: Assignment) => (
               <Space>
-                <Button size="small" onClick={() => handleEdit(record)}>Изменить</Button>
+                {isAdmin ? (
+                  <Button size="small" onClick={() => handleEdit(record)}>
+                    Изменить
+                  </Button>
+                ) : null}
                 <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/tasks`)}>
                   Задачи
                 </Button>
@@ -143,6 +267,11 @@ export function Assignments() {
                 <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/reports`)}>
                   Отчёты
                 </Button>
+                <Badge count={chatUnread[record.id] ?? 0} size="small" offset={[6, -2]}>
+                  <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/chat`)}>
+                    Чат
+                  </Button>
+                </Badge>
               </Space>
             ),
           },

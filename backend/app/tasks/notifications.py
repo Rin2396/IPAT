@@ -40,3 +40,14 @@ def send_periodic_reminder() -> None:
                 )
     finally:
         db.close()
+
+
+@celery_app.task
+def deactivate_expired_periods_task() -> None:
+    from app.services.period_lifecycle import deactivate_expired_periods
+
+    db = SessionLocal()
+    try:
+        deactivate_expired_periods(db)
+    finally:
+        db.close()

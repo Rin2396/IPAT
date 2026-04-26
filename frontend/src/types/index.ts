@@ -39,6 +39,7 @@ export interface Assignment {
   college_supervisor_id: number | null;
   company_supervisor_id: number | null;
   status: AssignmentStatus;
+  college_grade?: number | null;
   created_at: string;
   student?: UserPublic | null;
 }
@@ -83,4 +84,24 @@ export interface Notification {
   body: string | null;
   read: boolean;
   created_at: string;
+}
+
+export interface ChatThread {
+  id: number;
+  assignment_id: number;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  thread_id: number;
+  author_id: number;
+  author?: UserPublic | null;
+  body: string;
+  created_at: string;
+}
+
+export interface ChatUnreadCount {
+  assignment_id: number;
+  unread: number;
 }
