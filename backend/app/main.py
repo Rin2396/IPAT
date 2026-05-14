@@ -5,7 +5,7 @@ from starlette.requests import Request
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, users, companies, periods, assignments, tasks, reports, notifications, chat
+from app.api import auth, users, companies, periods, assignments, tasks, reports, notifications, chat, student_groups
 from app.core.config import settings
 from app.services.minio_client import get_minio_client, ensure_bucket
 
@@ -48,6 +48,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(student_groups.router, prefix="/api/student-groups", tags=["student-groups"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(periods.router, prefix="/api/periods", tags=["periods"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])

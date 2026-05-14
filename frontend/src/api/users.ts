@@ -6,7 +6,12 @@ export async function getMe(): Promise<User> {
   return data;
 }
 
-export async function listUsers(params?: { role?: string; skip?: number; limit?: number }): Promise<User[]> {
+export async function listUsers(params?: {
+  role?: string;
+  group_id?: number;
+  skip?: number;
+  limit?: number;
+}): Promise<User[]> {
   const { data } = await api.get<User[]>('/users', { params });
   return data;
 }
@@ -22,12 +27,23 @@ export async function createUser(payload: {
   full_name: string;
   role: string;
   is_active?: boolean;
+  student_group_id?: number | null;
+  company_id?: number | null;
 }): Promise<User> {
   const { data } = await api.post<User>('/users', payload);
   return data;
 }
 
-export async function updateUser(id: number, payload: Partial<{ full_name: string; role: string; is_active: boolean }>): Promise<User> {
+export async function updateUser(
+  id: number,
+  payload: Partial<{
+    full_name: string;
+    role: string;
+    is_active: boolean;
+    student_group_id: number | null;
+    company_id: number | null;
+  }>
+): Promise<User> {
   const { data } = await api.patch<User>(`/users/${id}`, payload);
   return data;
 }

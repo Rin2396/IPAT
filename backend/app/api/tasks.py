@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
+from app.core.assignment_access import user_can_access_assignment
 from app.core.deps import AdminUser, DbSession, CurrentUser
 from app.models.assignment import Assignment
 from app.models.task import Task, TaskStatus
@@ -15,16 +16,6 @@ ALLOWED_TRANSITIONS = {
     TaskStatus.done: (TaskStatus.accepted, TaskStatus.in_progress),
     TaskStatus.accepted: (),
 }
-
-
-def _can_access_assignment(assignment: Assignment, user) -> bool:
-    if user.role == UserRole.admin:
-        return True
-    if assignment.student_id == user.id:
-        return True
-    if assignment.college_supervisor_id == user.id or assignment.company_supervisor_id == user.id:
-        return True
-    return False
 
 
 def _can_accept_task(user) -> bool:
@@ -50,7 +41,7 @@ def list_tasks(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     tasks = db.query(Task).filter(Task.assignment_id == assignment_id).order_by(Task.order, Task.id).all()
     # Inject allowed transitions for current user.
@@ -65,7 +56,7 @@ def get_task(task_id: int, db: DbSession, current_user: CurrentUser):
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     assignment = db.query(Assignment).filter(Assignment.id == task.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     setattr(task, "allowed_transitions", _allowed_transitions_for_task(task, assignment, current_user))
     return task
@@ -81,7 +72,7 @@ def create_task(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if current_user.role == UserRole.student and assignment.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
@@ -106,7 +97,7 @@ def update_task(task_id: int, data: TaskUpdate, db: DbSession, current_user: Cur
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     assignment = db.query(Assignment).filter(Assignment.id == task.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if data.title is not None:
         task.title = data.title
@@ -146,7 +137,7 @@ def delete_task(task_id: int, db: DbSession, current_user: CurrentUser):
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     assignment = db.query(Assignment).filter(Assignment.id == task.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if current_user.role == UserRole.student and assignment.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")

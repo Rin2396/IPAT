@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from minio.error import S3Error
 
 from app.core.config import settings
+from app.core.assignment_access import user_can_access_assignment
 from app.core.deps import DbSession, CurrentUser
 from app.models.assignment import Assignment
 from app.models.report import Report, ReportStatus
@@ -46,16 +47,6 @@ REPORT_STATUS_TRANSITIONS = {
 }
 
 
-def _can_access_assignment(assignment: Assignment, user) -> bool:
-    if user.role == UserRole.admin:
-        return True
-    if assignment.student_id == user.id:
-        return True
-    if assignment.college_supervisor_id == user.id or assignment.company_supervisor_id == user.id:
-        return True
-    return False
-
-
 def _can_review_report(user) -> bool:
     return user.role in (UserRole.admin, UserRole.college_supervisor, UserRole.company_supervisor)
 
@@ -87,7 +78,7 @@ def list_reports(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     reports = db.query(Report).filter(Report.assignment_id == assignment_id).order_by(Report.iteration).all()
     for r in reports:
@@ -101,7 +92,7 @@ def get_report(report_id: int, db: DbSession, current_user: CurrentUser):
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     assignment = db.query(Assignment).filter(Assignment.id == report.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     setattr(report, "allowed_transitions", _allowed_transitions_for_report(report, assignment, current_user))
     return report
@@ -113,7 +104,7 @@ def download_report_file(report_id: int, db: DbSession, current_user: CurrentUse
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     assignment = db.query(Assignment).filter(Assignment.id == report.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     client = get_minio_client()
     ensure_bucket(client, settings.MINIO_BUCKET)
@@ -138,7 +129,7 @@ def delete_report(report_id: int, db: DbSession, current_user: CurrentUser):
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     assignment = db.query(Assignment).filter(Assignment.id == report.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if report.status != ReportStatus.draft:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only delete draft reports")
@@ -166,7 +157,7 @@ def upload_report(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if assignment.student_id != current_user.id and current_user.role != UserRole.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only student or admin can upload")
@@ -203,7 +194,7 @@ def update_report_status(report_id: int, data: ReportUpdate, db: DbSession, curr
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     assignment = db.query(Assignment).filter(Assignment.id == report.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     if data.status is not None:
         allowed = REPORT_STATUS_TRANSITIONS.get(report.status, ())

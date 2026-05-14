@@ -8,10 +8,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
+from app.core.assignment_access import scope_assignments_query, user_can_access_assignment
 from app.core.deps import DbSession, CurrentUser
 from app.models.assignment import Assignment
 from app.models.chat import ChatThread, ChatMessage, ChatThreadRead
-from app.models.user import UserRole
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageRead,
@@ -29,16 +29,6 @@ NOTIFY_THROTTLE_SECONDS = 120
 
 def _redis_client() -> redis.Redis:
     return redis.from_url(settings.REDIS_URL, decode_responses=True)
-
-
-def _can_access_assignment(assignment: Assignment, user) -> bool:
-    if user.role == UserRole.admin:
-        return True
-    if assignment.student_id == user.id:
-        return True
-    if assignment.college_supervisor_id == user.id or assignment.company_supervisor_id == user.id:
-        return True
-    return False
 
 
 def _assignment_participants(assignment: Assignment) -> list[int]:
@@ -114,7 +104,7 @@ def get_or_create_thread(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     thread = _get_or_create_thread(db, assignment_id)
     return thread
@@ -132,7 +122,7 @@ def list_messages(
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     assignment = db.query(Assignment).filter(Assignment.id == thread.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     q = db.query(ChatMessage).options(joinedload(ChatMessage.author)).filter(ChatMessage.thread_id == thread_id)
@@ -155,7 +145,7 @@ def list_messages_since(
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     assignment = db.query(Assignment).filter(Assignment.id == thread.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     q = (
         db.query(ChatMessage)
@@ -178,7 +168,7 @@ def send_message(
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     assignment = db.query(Assignment).filter(Assignment.id == thread.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     body = (data.body or "").strip()
@@ -222,7 +212,7 @@ def mark_thread_read(
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
     assignment = db.query(Assignment).filter(Assignment.id == thread.assignment_id).first()
-    if not assignment or not _can_access_assignment(assignment, current_user):
+    if not assignment or not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     last_id = data.last_read_message_id
@@ -257,7 +247,7 @@ def unread_count_for_assignment(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     thread = db.query(ChatThread).filter(ChatThread.assignment_id == assignment_id).first()
@@ -284,18 +274,7 @@ def unread_counts_for_user(
     current_user: CurrentUser,
 ):
     # For MVP: compute for assignments visible to user (simple, may be optimized later).
-    aq = db.query(Assignment)
-    if current_user.role == UserRole.admin:
-        pass
-    elif current_user.role == UserRole.student:
-        aq = aq.filter(Assignment.student_id == current_user.id)
-    elif current_user.role == UserRole.college_supervisor:
-        aq = aq.filter(Assignment.college_supervisor_id == current_user.id)
-    elif current_user.role == UserRole.company_supervisor:
-        aq = aq.filter(Assignment.company_supervisor_id == current_user.id)
-    else:
-        return []
-    assignments = aq.all()
+    assignments = scope_assignments_query(db, current_user).all()
     out: list[ChatUnreadCountRead] = []
     for a in assignments:
         out.append(unread_count_for_assignment(db=db, current_user=current_user, assignment_id=a.id))

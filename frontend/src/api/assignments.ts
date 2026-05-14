@@ -5,6 +5,7 @@ export async function listAssignments(params?: {
   status?: string;
   student_id?: number;
   period_id?: number;
+  group_id?: number;
 }): Promise<Assignment[]> {
   const { data } = await api.get<Assignment[]>('/assignments', { params });
   return data;

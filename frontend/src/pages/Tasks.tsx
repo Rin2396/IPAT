@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Table, Button, Card, Space, Modal, Form, Input, Select, message } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { listTasks, createTask, updateTask, deleteTask } from '../api/tasks';
+import { showDesktopNotification } from '../utils/desktopNotification';
 import type { Task } from '../types';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -60,7 +61,14 @@ export function Tasks() {
   const handleStatusChange = async (task: Task, newStatus: string) => {
     try {
       await updateTask(task.id, { status: newStatus });
-      message.success('Статус обновлён');
+      const label = STATUS_LABELS[newStatus] ?? newStatus;
+      void showDesktopNotification({
+        title: 'Задачи',
+        body: `«${task.title}» — ${label}`,
+        tag: `task-${task.id}-${newStatus}`,
+        allowPermissionPrompt: true,
+        fallback: () => message.success('Статус обновлён'),
+      });
       load();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };

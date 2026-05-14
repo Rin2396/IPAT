@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Layout, Menu, Dropdown, Badge, Button, Space, Typography } from 'antd';
+import { Layout, Menu, Dropdown, Badge, Button, Space, Typography, notification } from 'antd';
 import {
   UserOutlined,
   BellOutlined,
@@ -15,6 +15,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { listNotifications, getUnreadCount, markNotificationRead, markAllRead } from '../api/notifications';
 import { logout } from '../api/auth';
+import {
+  showDesktopNotification,
+  registerNotificationServiceWorker,
+  getDesktopNotificationPermission,
+  ensureDesktopNotificationPermission,
+} from '../utils/desktopNotification';
 import type { MenuProps } from 'antd';
 import type { UserRole } from '../types';
 import type { Notification } from '../types';
@@ -47,17 +53,57 @@ export function MainLayout({ children }: { children?: React.ReactNode }) {
   const { user, logout: storeLogout } = useAuthStore();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [desktopPerm, setDesktopPerm] = useState<ReturnType<typeof getDesktopNotificationPermission>>(() =>
+    getDesktopNotificationPermission()
+  );
+  const seenNotificationIdsRef = useRef<Set<number>>(new Set());
+  const notificationsHydratedRef = useRef(false);
 
   const loadNotifications = () => {
-    listNotifications({ unread_only: false }).then(setNotifications).catch(() => {});
+    listNotifications({ unread_only: false })
+      .then((list) => {
+        if (!notificationsHydratedRef.current) {
+          list.forEach((n) => seenNotificationIdsRef.current.add(n.id));
+          notificationsHydratedRef.current = true;
+        } else {
+          for (const n of list) {
+            if (seenNotificationIdsRef.current.has(n.id)) continue;
+            seenNotificationIdsRef.current.add(n.id);
+            if (!n.read) {
+              const body = (n.body ?? '').trim() || undefined;
+              void showDesktopNotification({
+                title: n.title,
+                body,
+                tag: `server-notif-${n.id}`,
+                allowPermissionPrompt: false,
+                fallback: () => {
+                  notification.info({
+                    message: n.title,
+                    description: body,
+                    placement: 'topRight',
+                    duration: 8,
+                  });
+                },
+              });
+            }
+          }
+        }
+        setNotifications(list);
+      })
+      .catch(() => {});
     getUnreadCount().then((r) => setUnreadCount(r.count)).catch(() => {});
   };
 
   useEffect(() => {
+    if (!user?.id) return;
+    notificationsHydratedRef.current = false;
+    seenNotificationIdsRef.current = new Set();
+    setDesktopPerm(getDesktopNotificationPermission());
+    void registerNotificationServiceWorker();
     loadNotifications();
     const t = setInterval(loadNotifications, 30000);
     return () => clearInterval(t);
-  }, []);
+  }, [user?.id]);
 
   const handleLogout = async () => {
     try {
@@ -108,6 +154,28 @@ export function MainLayout({ children }: { children?: React.ReactNode }) {
           style={{ flex: 1, minWidth: 0 }}
         />
         <Space>
+          {desktopPerm === 'default' && (
+            <Button
+              type="link"
+              size="small"
+              style={{ color: 'rgba(255,255,255,0.85)' }}
+              onClick={async () => {
+                const p = await ensureDesktopNotificationPermission();
+                setDesktopPerm(p);
+                if (p === 'granted') {
+                  notification.success({ message: 'Системные уведомления включены' });
+                  void registerNotificationServiceWorker();
+                } else if (p === 'denied') {
+                  notification.warning({
+                    message: 'Уведомления в браузере отключены',
+                    description: 'Новые события будут показываться только внутри сайта (всплывающие подсказки).',
+                  });
+                }
+              }}
+            >
+              Разрешить уведомления
+            </Button>
+          )}
           <Dropdown menu={notificationMenu} trigger={['click']} placement="bottomRight">
             <Badge count={unreadCount} size="small">
               <Button type="text" icon={<BellOutlined />} style={{ color: '#fff' }} />

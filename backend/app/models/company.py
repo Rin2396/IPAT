@@ -17,3 +17,4 @@ class Company(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     assignments = relationship("Assignment", back_populates="company")
+    supervisor_users = relationship("User", back_populates="supervisor_company", foreign_keys="User.company_id")

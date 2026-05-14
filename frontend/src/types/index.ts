@@ -1,17 +1,38 @@
 export type UserRole = 'admin' | 'student' | 'college_supervisor' | 'company_supervisor';
 
+export interface StudentGroupBrief {
+  id: number;
+  name: string;
+}
+
+export interface StudentGroup {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+export interface CompanyBrief {
+  id: number;
+  name: string;
+}
+
 export interface User {
   id: number;
   email: string;
   full_name: string;
   role: UserRole;
   is_active: boolean;
+  student_group_id?: number | null;
+  company_id?: number | null;
+  student_group?: StudentGroupBrief | null;
+  supervisor_company?: CompanyBrief | null;
 }
 
 export interface UserPublic {
   id: number;
   full_name: string;
   role: UserRole;
+  student_group?: StudentGroupBrief | null;
 }
 
 export interface TokenPair {

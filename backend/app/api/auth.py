@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -23,7 +24,12 @@ router = APIRouter()
 
 @router.post("/login", response_model=LoginResponse)
 def login(data: LoginRequest, db=Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
+    user = (
+        db.query(User)
+        .options(joinedload(User.student_group), joinedload(User.supervisor_company))
+        .filter(User.email == data.email)
+        .first()
+    )
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:

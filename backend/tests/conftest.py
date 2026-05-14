@@ -33,6 +33,10 @@ def client(monkeypatch: pytest.MonkeyPatch):
 
     database.Base.metadata.create_all(bind=engine)
 
+    import app.tasks.notifications as notifications_mod
+
+    monkeypatch.setattr(notifications_mod.notify_user, "delay", lambda *a, **k: None, raising=False)
+
     from app.main import app
     from app.core.deps import get_current_user
     from app.models.user import User

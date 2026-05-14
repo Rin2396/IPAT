@@ -4,6 +4,7 @@ import { Badge, Button, Card, Input, List, Space, Typography, message as toast }
 import { ArrowLeftOutlined, SendOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getOrCreateChatThread, listChatMessages, listChatMessagesSince, markChatRead, sendChatMessage, getChatUnreadCount } from '../api/chat';
 import { useAuthStore } from '../stores/authStore';
+import { showDesktopNotification } from '../utils/desktopNotification';
 import type { ChatMessage } from '../types';
 
 const { Text } = Typography;
@@ -17,21 +18,10 @@ const ROLE_LABELS: Record<string, string> = {
   company_supervisor: 'Руководитель (компания)',
 };
 
-function usePageVisible() {
-  const [visible, setVisible] = useState(!document.hidden);
-  useEffect(() => {
-    const onChange = () => setVisible(!document.hidden);
-    document.addEventListener('visibilitychange', onChange);
-    return () => document.removeEventListener('visibilitychange', onChange);
-  }, []);
-  return visible;
-}
-
 export function Chat() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const visible = usePageVisible();
 
   const assignmentIdNum = assignmentId ? parseInt(assignmentId, 10) : 0;
 
@@ -120,6 +110,19 @@ export function Chat() {
     try {
       const items = await listChatMessagesSince(threadId, lastId);
       if (!items.length) return;
+      for (const m of items) {
+        if (user?.id != null && m.author_id !== user.id) {
+          const preview = (m.body || '').trim().slice(0, 160);
+          void showDesktopNotification({
+            title: `Новое сообщение в чате (#${assignmentIdNum})`,
+            body: preview || 'Новое сообщение',
+            tag: `chat-msg-${m.id}`,
+            fallback: () => {
+              toast.info(preview ? `${preview.slice(0, 80)}${preview.length > 80 ? '…' : ''}` : 'Новое сообщение в чате');
+            },
+          });
+        }
+      }
       setMessages((cur) => [...cur, ...items]);
       if (stickToBottom) {
         requestAnimationFrame(scrollToBottom);
@@ -141,11 +144,9 @@ export function Chat() {
 
   useEffect(() => {
     if (!threadId) return;
-    if (!visible) return;
     const t = setInterval(pollNew, 4000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, visible, lastId, stickToBottom]);
+  }, [threadId, lastId, stickToBottom]);
 
   useEffect(() => {
     // lightweight unread refresh when user is on page but not sticking to bottom

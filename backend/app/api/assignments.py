@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query
 
 from sqlalchemy.orm import joinedload
 
+from app.core.assignment_access import scope_assignments_query, user_can_access_assignment
 from app.core.deps import AdminUser, DbSession, CurrentUser
 from app.models.assignment import Assignment, AssignmentStatus
+from app.models.user import User, UserRole
 from app.tasks.notifications import notify_user
-from app.models.user import UserRole
 from app.schemas.assignment import (
     AssignmentCreate,
     AssignmentGradeUpdate,
@@ -16,31 +17,6 @@ from app.schemas.assignment import (
 router = APIRouter()
 
 
-def _scope_assignments_query(db, user):
-    q = db.query(Assignment)
-    if user.role == UserRole.admin:
-        pass
-    elif user.role == UserRole.student:
-        q = q.filter(Assignment.student_id == user.id)
-    elif user.role == UserRole.college_supervisor:
-        q = q.filter(Assignment.college_supervisor_id == user.id)
-    elif user.role == UserRole.company_supervisor:
-        q = q.filter(Assignment.company_supervisor_id == user.id)
-    else:
-        q = q.filter(Assignment.id == -1)
-    return q
-
-
-def _can_access_assignment(assignment: Assignment, user) -> bool:
-    if user.role == UserRole.admin:
-        return True
-    if assignment.student_id == user.id:
-        return True
-    if assignment.college_supervisor_id == user.id or assignment.company_supervisor_id == user.id:
-        return True
-    return False
-
-
 @router.get("", response_model=list[AssignmentRead])
 def list_assignments(
     db: DbSession,
@@ -48,16 +24,21 @@ def list_assignments(
     status_filter: AssignmentStatus | None = Query(None, alias="status"),
     student_id: int | None = Query(None),
     period_id: int | None = Query(None),
+    group_id: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
 ):
-    q = _scope_assignments_query(db, current_user).options(joinedload(Assignment.student))
+    q = scope_assignments_query(db, current_user).options(
+        joinedload(Assignment.student).joinedload(User.student_group)
+    )
     if status_filter is not None:
         q = q.filter(Assignment.status == status_filter)
     if student_id is not None and current_user.role == UserRole.admin:
         q = q.filter(Assignment.student_id == student_id)
     if period_id is not None:
         q = q.filter(Assignment.period_id == period_id)
+    if group_id is not None:
+        q = q.join(User, Assignment.student_id == User.id).filter(User.student_group_id == group_id)
     return q.order_by(Assignment.created_at.desc()).offset(skip).limit(limit).all()
 
 
@@ -65,13 +46,13 @@ def list_assignments(
 def get_assignment(assignment_id: int, db: DbSession, current_user: CurrentUser):
     assignment = (
         db.query(Assignment)
-        .options(joinedload(Assignment.student))
+        .options(joinedload(Assignment.student).joinedload(User.student_group))
         .filter(Assignment.id == assignment_id)
         .first()
     )
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    if not _can_access_assignment(assignment, current_user):
+    if not user_can_access_assignment(assignment, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return assignment
 
@@ -89,7 +70,12 @@ def create_assignment(data: AssignmentCreate, db: DbSession, current_user: Admin
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
-    return assignment
+    return (
+        db.query(Assignment)
+        .options(joinedload(Assignment.student).joinedload(User.student_group))
+        .filter(Assignment.id == assignment.id)
+        .first()
+    )
 
 
 @router.patch("/{assignment_id}", response_model=AssignmentRead)
@@ -116,8 +102,12 @@ def update_assignment(
                 f"Назначение #{assignment.id} переведено в статус «{data.status.value}».",
             )
     db.commit()
-    db.refresh(assignment)
-    return assignment
+    return (
+        db.query(Assignment)
+        .options(joinedload(Assignment.student).joinedload(User.student_group))
+        .filter(Assignment.id == assignment_id)
+        .first()
+    )
 
 
 @router.patch("/{assignment_id}/grade", response_model=AssignmentRead)
@@ -131,7 +121,7 @@ def update_assignment_grade(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only college supervisor can set grade")
     assignment = (
         db.query(Assignment)
-        .options(joinedload(Assignment.student))
+        .options(joinedload(Assignment.student).joinedload(User.student_group))
         .filter(Assignment.id == assignment_id)
         .first()
     )

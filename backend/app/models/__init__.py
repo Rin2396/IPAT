@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.student_group import StudentGroup
 from app.models.company import Company
 from app.models.period import Period
 from app.models.assignment import Assignment
@@ -9,6 +10,7 @@ from app.models.chat import ChatThread, ChatMessage, ChatThreadRead
 
 __all__ = [
     "User",
+    "StudentGroup",
     "Company",
     "Period",
     "Assignment",

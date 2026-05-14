@@ -125,6 +125,9 @@ def test_assignments_list_scoped_by_role(client):
         co1_id = co1.id
 
         company = _create_company(db)
+        co1.company_id = company.id
+        db.add(co1)
+        db.commit()
         period = _create_period(db, start=date.today(), end=date.today() + timedelta(days=10))
 
         a1 = _create_assignment(
@@ -145,6 +148,7 @@ def test_assignments_list_scoped_by_role(client):
             company_supervisor_id=None,
             status=AssignmentStatus.active,
         )
+        a1_id, a2_id = a1.id, a2.id
     finally:
         db.close()
 
@@ -152,23 +156,23 @@ def test_assignments_list_scoped_by_role(client):
     r = client.get("/api/assignments", headers=_auth_header(admin_id))
     assert r.status_code == 200
     ids = {x["id"] for x in r.json()}
-    assert {a1.id, a2.id}.issubset(ids)
+    assert {a1_id, a2_id}.issubset(ids)
 
     # Student sees only own
     r = client.get("/api/assignments", headers=_auth_header(s1_id))
     assert r.status_code == 200
     ids = {x["id"] for x in r.json()}
-    assert ids == {a1.id}
+    assert ids == {a1_id}
 
     # College supervisor sees only where assigned
     r = client.get("/api/assignments", headers=_auth_header(cs1_id))
     assert r.status_code == 200
     ids = {x["id"] for x in r.json()}
-    assert ids == {a1.id}
+    assert ids == {a1_id}
 
-    # Company supervisor sees only where assigned
+    # Company supervisor sees all assignments for their company
     r = client.get("/api/assignments", headers=_auth_header(co1_id))
     assert r.status_code == 200
     ids = {x["id"] for x in r.json()}
-    assert ids == {a1.id}
+    assert ids == {a1_id, a2_id}
 

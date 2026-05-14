@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -22,7 +22,12 @@ class User(Base):
     role = Column(Enum(UserRole), nullable=False, index=True)
     full_name = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    student_group_id = Column(Integer, ForeignKey("student_groups.id"), nullable=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    student_group = relationship("StudentGroup", back_populates="students", foreign_keys=[student_group_id])
+    supervisor_company = relationship("Company", foreign_keys=[company_id])
 
     assignments_as_student = relationship("Assignment", back_populates="student", foreign_keys="Assignment.student_id")
     assignments_as_college_supervisor = relationship(

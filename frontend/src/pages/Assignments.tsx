@@ -1,14 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Card, Space, Modal, Form, Select, Badge, message } from 'antd';
+import {
+  Table,
+  Button,
+  Card,
+  Space,
+  Modal,
+  Form,
+  Select,
+  Badge,
+  message,
+  Collapse,
+  Typography,
+} from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { listAssignments, createAssignment, updateAssignment, updateAssignmentGrade } from '../api/assignments';
 import { listPeriods as fetchPeriods } from '../api/periods';
 import { listUsers as fetchUsers } from '../api/users';
 import { listCompanies as fetchCompanies } from '../api/companies';
+import { listStudentGroupsContext } from '../api/studentGroups';
 import { getChatUnreadCounts } from '../api/chat';
 import { useAuthStore } from '../stores/authStore';
-import type { Assignment, Period, User, Company } from '../types';
+import type { Assignment, Period, User, Company, StudentGroup } from '../types';
+
+const { Text } = Typography;
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Черновик',
@@ -26,6 +41,14 @@ function formatPeriodLabel(periods: Period[], periodId: number): string {
   const p = periods.find((x) => x.id === periodId);
   if (!p) return String(periodId);
   return `${p.name} (${p.start_date} — ${p.end_date})`;
+}
+
+function groupLabel(a: Assignment): string {
+  return a.student?.student_group?.name ?? 'Без группы';
+}
+
+function groupKey(a: Assignment): string {
+  return a.student?.student_group?.id != null ? String(a.student.student_group.id) : '__none__';
 }
 
 function AssignmentGradeCell({
@@ -95,27 +118,44 @@ export function Assignments() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === 'admin';
   const isCollegeSupervisor = user?.role === 'college_supervisor';
+  const isCompanySupervisor = user?.role === 'company_supervisor';
+  const showGroupControls = isAdmin || isCollegeSupervisor || isCompanySupervisor;
 
   const [data, setData] = useState<Assignment[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [filterGroups, setFilterGroups] = useState<StudentGroup[]>([]);
+  const [groupFilterId, setGroupFilterId] = useState<number | undefined>(undefined);
+  const [studentPickerGroupId, setStudentPickerGroupId] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [form] = Form.useForm();
   const [chatUnread, setChatUnread] = useState<Record<number, number>>({});
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
-    listAssignments().then(setData).finally(() => setLoading(false));
-  };
+    listAssignments(groupFilterId != null ? { group_id: groupFilterId } : {})
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [groupFilterId]);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
     fetchPeriods().then(setPeriods);
-    fetchUsers().then(setUsers);
-    fetchCompanies().then(setCompanies);
+    if (isAdmin) {
+      fetchUsers().then(setUsers);
+      fetchCompanies().then(setCompanies);
+    } else {
+      setUsers([]);
+    }
+    if (showGroupControls) {
+      listStudentGroupsContext().then(setFilterGroups).catch(() => setFilterGroups([]));
+    }
     const loadUnread = () => {
       getChatUnreadCounts()
         .then((rows) => {
@@ -128,11 +168,12 @@ export function Assignments() {
     loadUnread();
     const t = setInterval(loadUnread, 60000);
     return () => clearInterval(t);
-  }, []);
+  }, [showGroupControls, isAdmin]);
 
   const handleCreate = () => {
     setEditing(null);
     form.resetFields();
+    setStudentPickerGroupId(undefined);
     setModalOpen(true);
   };
 
@@ -177,7 +218,6 @@ export function Assignments() {
     }
   };
 
-  const studentOptions = users.filter((u) => u.role === 'student').map((u) => ({ value: u.id, label: u.full_name }));
   const supervisorOptions = users
     .filter((u) => u.role === 'college_supervisor' || u.role === 'company_supervisor')
     .map((u) => ({ value: u.id, label: `${u.full_name} (${u.role})` }));
@@ -186,6 +226,125 @@ export function Assignments() {
     label: `${p.name} (${p.start_date} — ${p.end_date})`,
   }));
   const companyOptions = companies.filter((c) => !c.blocked).map((c) => ({ value: c.id, label: c.name }));
+
+  const studentOptions = useMemo(() => {
+    let studs = users.filter((u) => u.role === 'student');
+    if (studentPickerGroupId != null) {
+      studs = studs.filter((u) => u.student_group_id === studentPickerGroupId);
+    }
+    return studs.map((u) => ({
+      value: u.id,
+      label: `${u.full_name}${u.student_group ? ` (${u.student_group.name})` : ''}`,
+    }));
+  }, [users, studentPickerGroupId]);
+
+  const grouped = useMemo(() => {
+    const m = new Map<string, Assignment[]>();
+    for (const a of data) {
+      const k = groupKey(a);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(a);
+    }
+    const order = Array.from(m.keys()).sort((a, b) => {
+      if (a === '__none__') return 1;
+      if (b === '__none__') return -1;
+      return groupLabel(m.get(a)![0]).localeCompare(groupLabel(m.get(b)![0]), 'ru');
+    });
+    return order.map((k) => ({ key: k, title: groupLabel(m.get(k)![0]), rows: m.get(k)! }));
+  }, [data]);
+
+  const gradeColumn =
+    isCollegeSupervisor && user
+      ? {
+          title: 'Оценка',
+          key: 'grade',
+          width: 220,
+          render: (_: unknown, record: Assignment) => (
+            <AssignmentGradeCell record={record} supervisorUserId={user.id} onSaved={load} />
+          ),
+        }
+      : {
+          title: 'Оценка',
+          dataIndex: 'college_grade',
+          width: 100,
+          render: (g: number | null | undefined) => (g != null ? <span>{g}</span> : <span>—</span>),
+        };
+
+  const baseColumns = [
+    {
+      title: 'Студент',
+      dataIndex: 'student_id',
+      render: (id: number, record: Assignment) =>
+        record.student?.full_name ?? users.find((u) => u.id === id)?.full_name ?? id,
+    },
+    {
+      title: 'Группа',
+      key: 'grp',
+      render: (_: unknown, record: Assignment) =>
+        record.student?.student_group?.name ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Компания',
+      dataIndex: 'company_id',
+      render: (id: number) => companies.find((c) => c.id === id)?.name ?? id,
+    },
+    {
+      title: 'Период',
+      dataIndex: 'period_id',
+      render: (id: number) => formatPeriodLabel(periods, id),
+    },
+    {
+      title: 'Статус',
+      dataIndex: 'status',
+      render: (s: string) => STATUS_LABELS[s] ?? s,
+    },
+    gradeColumn,
+    {
+      title: 'Действия',
+      key: 'actions',
+      render: (_: unknown, record: Assignment) => (
+        <Space>
+          {isAdmin ? (
+            <Button size="small" onClick={() => handleEdit(record)}>
+              Изменить
+            </Button>
+          ) : null}
+          <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/tasks`)}>
+            Задачи
+          </Button>
+          <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/diary`)}>
+            Дневник
+          </Button>
+          <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/reports`)}>
+            Отчёты
+          </Button>
+          <Badge count={chatUnread[record.id] ?? 0} size="small" offset={[6, -2]}>
+            <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/chat`)}>
+              Чат
+            </Button>
+          </Badge>
+        </Space>
+      ),
+    },
+  ];
+
+  const groupFilterSelect = showGroupControls ? (
+    <Space wrap style={{ marginBottom: 12 }}>
+      <Text type="secondary">Группа:</Text>
+      <Select
+        allowClear
+        placeholder="Все группы"
+        style={{ minWidth: 220 }}
+        value={groupFilterId}
+        onChange={(v) => setGroupFilterId(v ?? undefined)}
+        options={filterGroups.map((g) => ({ value: g.id, label: g.name }))}
+      />
+    </Space>
+  ) : null;
+
+  const tableEl = (
+    <Table loading={loading} dataSource={data} rowKey="id" columns={baseColumns} pagination={{ pageSize: 20 }} />
+  );
 
   return (
     <Card
@@ -198,96 +357,60 @@ export function Assignments() {
         ) : null
       }
     >
-      <Table
-        loading={loading}
-        dataSource={data}
-        rowKey="id"
-        columns={[
-          {
-            title: 'Студент',
-            dataIndex: 'student_id',
-            render: (id: number, record: Assignment) =>
-              record.student?.full_name ?? users.find((u) => u.id === id)?.full_name ?? id,
-          },
-          {
-            title: 'Компания',
-            dataIndex: 'company_id',
-            render: (id: number) => companies.find((c) => c.id === id)?.name ?? id,
-          },
-          {
-            title: 'Период',
-            dataIndex: 'period_id',
-            render: (id: number) => formatPeriodLabel(periods, id),
-          },
-          {
-            title: 'Статус',
-            dataIndex: 'status',
-            render: (s: string) => STATUS_LABELS[s] ?? s,
-          },
-          ...(isCollegeSupervisor && user
-            ? [
-                {
-                  title: 'Оценка',
-                  key: 'grade',
-                  width: 220,
-                  render: (_: unknown, record: Assignment) => (
-                    <AssignmentGradeCell
-                      record={record}
-                      supervisorUserId={user.id}
-                      onSaved={load}
-                    />
-                  ),
-                },
-              ]
-            : [
-                {
-                  title: 'Оценка',
-                  dataIndex: 'college_grade',
-                  width: 100,
-                  render: (g: number | null | undefined) =>
-                    g != null ? <span>{g}</span> : <span>—</span>,
-                },
-              ]),
-          {
-            title: 'Действия',
-            key: 'actions',
-            render: (_: unknown, record: Assignment) => (
-              <Space>
-                {isAdmin ? (
-                  <Button size="small" onClick={() => handleEdit(record)}>
-                    Изменить
-                  </Button>
-                ) : null}
-                <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/tasks`)}>
-                  Задачи
-                </Button>
-                <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/diary`)}>
-                  Дневник
-                </Button>
-                <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/reports`)}>
-                  Отчёты
-                </Button>
-                <Badge count={chatUnread[record.id] ?? 0} size="small" offset={[6, -2]}>
-                  <Button size="small" type="link" onClick={() => navigate(`/assignments/${record.id}/chat`)}>
-                    Чат
-                  </Button>
-                </Badge>
-              </Space>
+      {groupFilterSelect}
+      {showGroupControls && groupFilterId == null && grouped.length > 1 ? (
+        <Collapse
+          style={{ marginBottom: 16 }}
+          items={grouped.map((g) => ({
+            key: g.key,
+            label: `${g.title} (${g.rows.length})`,
+            children: (
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={g.rows}
+                pagination={false}
+                columns={baseColumns}
+              />
             ),
-          },
-        ]}
-      />
+          }))}
+        />
+      ) : (
+        tableEl
+      )}
+
       <Modal
         title={editing ? 'Редактировать назначение' : 'Новое назначение'}
         open={modalOpen}
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
         destroyOnClose
-        width={500}
+        width={520}
       >
         <Form form={form} layout="vertical">
+          {!editing && isAdmin ? (
+            <Form.Item label="Фильтр студентов по группе">
+              <Select
+                allowClear
+                placeholder="Все студенты"
+                style={{ width: '100%' }}
+                value={studentPickerGroupId}
+                onChange={(v) => {
+                  setStudentPickerGroupId(v ?? undefined);
+                  form.setFieldsValue({ student_id: undefined });
+                }}
+                options={filterGroups.map((g) => ({ value: g.id, label: g.name }))}
+              />
+            </Form.Item>
+          ) : null}
           <Form.Item name="student_id" label="Студент" rules={[{ required: !editing }]}>
-            <Select options={studentOptions} disabled={!!editing} placeholder="Выберите студента" />
+            <Select
+              options={studentOptions}
+              disabled={!!editing}
+              placeholder="Выберите студента"
+              showSearch
+              optionFilterProp="label"
+            />
           </Form.Item>
           <Form.Item name="company_id" label="Компания" rules={[{ required: true }]}>
             <Select options={companyOptions} disabled={!!editing} placeholder="Выберите компанию" />

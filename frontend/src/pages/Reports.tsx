@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Table, Button, Card, Space, Upload, Select, message } from 'antd';
 import { ArrowLeftOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { listReports, uploadReport, updateReportStatus, downloadReport, deleteReport } from '../api/reports';
+import { showDesktopNotification } from '../utils/desktopNotification';
 import type { Report } from '../types';
 import { useAuthStore } from '../stores/authStore';
 
@@ -54,7 +55,14 @@ export function Reports() {
   const handleStatusChange = async (report: Report, newStatus: string) => {
     try {
       await updateReportStatus(report.id, newStatus);
-      message.success('Статус обновлён');
+      const label = STATUS_LABELS[newStatus] ?? newStatus;
+      void showDesktopNotification({
+        title: 'Отчёты',
+        body: `Итерация ${report.iteration}: ${label}`,
+        tag: `report-${report.id}-${newStatus}`,
+        allowPermissionPrompt: true,
+        fallback: () => message.success('Статус обновлён'),
+      });
       load();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
